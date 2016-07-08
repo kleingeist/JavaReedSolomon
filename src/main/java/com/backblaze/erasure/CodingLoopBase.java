@@ -6,6 +6,8 @@
 
 package com.backblaze.erasure;
 
+import java.nio.ByteBuffer;
+
 /**
  * Common implementations for coding loops.
  *
@@ -38,5 +40,25 @@ public abstract class CodingLoopBase implements CodingLoop {
             }
         }
         return true;
+    }
+    
+    
+    @Override
+    public void codeSomeShards(
+            final byte[][] matrixRows,
+            final ByteBuffer[] inputs, final int inputCount,
+            final ByteBuffer[] outputs, final int outputCount,
+            final int offset, final int byteCount) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean checkSomeShards(
+            final byte[][] matrixRows,
+            final ByteBuffer[] inputs, final int inputCount,
+            final ByteBuffer[] toCheck, final int checkCount,
+            final int offset, final int byteCount,
+            final ByteBuffer tempBuffer) {
+        throw new UnsupportedOperationException();
     }
 }

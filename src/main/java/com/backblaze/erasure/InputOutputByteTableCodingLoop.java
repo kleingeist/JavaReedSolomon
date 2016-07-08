@@ -6,6 +6,8 @@
 
 package com.backblaze.erasure;
 
+import java.nio.ByteBuffer;
+
 public class InputOutputByteTableCodingLoop extends CodingLoopBase {
 
     @Override
@@ -85,6 +87,69 @@ public class InputOutputByteTableCodingLoop extends CodingLoopBase {
             }
         }
 
+        return true;
+    }
+
+    @Override
+    public void codeSomeShards(
+            byte[][] matrixRows,
+            ByteBuffer[] inputs, int inputCount,
+            ByteBuffer[] outputs, int outputCount,
+            int offset, int byteCount) {
+
+        final byte[][] table = Galois.MULTIPLICATION_TABLE;
+
+        {
+            final int iInput = 0;
+            final ByteBuffer inputShard = inputs[iInput];
+
+            for (int iOutput = 0; iOutput < outputCount; iOutput++) {
+                final ByteBuffer outputShard = outputs[iOutput];
+                final byte[] matrixRow = matrixRows[iOutput];
+                final byte[] multTableRow = table[matrixRow[iInput] & 0xFF];
+                for (int iByte = offset; iByte < offset + byteCount; iByte++) {
+                    outputShard.put(iByte, multTableRow[inputShard.get(iByte) & 0xFF]);
+                }
+            }
+        }
+
+        for (int iInput = 1; iInput < inputCount; iInput++) {
+            final ByteBuffer inputShard = inputs[iInput];
+            for (int iOutput = 0; iOutput < outputCount; iOutput++) {
+                final ByteBuffer outputShard = outputs[iOutput];
+                final byte[] matrixRow = matrixRows[iOutput];
+                final byte[] multTableRow = table[matrixRow[iInput] & 0xFF];
+                for (int iByte = offset; iByte < offset + byteCount; iByte++) {
+                    outputShard.put(iByte,
+                            (byte) (outputShard.get(iByte) ^ multTableRow[inputShard.get(iByte) & 0xFF]));
+                }
+            }
+        }
+    }
+
+    @Override
+    public boolean checkSomeShards(
+            byte[][] matrixRows,
+            ByteBuffer[] inputs, int inputCount,
+            ByteBuffer[] toCheck, int checkCount,
+            int offset, int byteCount,
+            ByteBuffer tempBuffer) {
+
+        // This is the loop structure for ByteOutputInput, which does not
+        // require temporary buffers for checking.
+        byte[][] table = Galois.MULTIPLICATION_TABLE;
+        for (int iByte = offset; iByte < offset + byteCount; iByte++) {
+            for (int iOutput = 0; iOutput < checkCount; iOutput++) {
+                byte[] matrixRow = matrixRows[iOutput];
+                int value = 0;
+                for (int iInput = 0; iInput < inputCount; iInput++) {
+                    value ^= table[matrixRow[iInput] & 0xFF][inputs[iInput].get(iByte) & 0xFF];
+                }
+                if (toCheck[iOutput].get(iByte) != (byte) value) {
+                    return false;
+                }
+            }
+        }
         return true;
     }
 

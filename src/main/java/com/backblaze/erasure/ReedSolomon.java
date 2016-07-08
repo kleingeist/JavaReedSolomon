@@ -6,6 +6,8 @@
 
 package com.backblaze.erasure;
 
+import java.nio.ByteBuffer;
+
 /**
  * Reed-Solomon Coding over 8-bit values.
  */
@@ -98,6 +100,102 @@ public class ReedSolomon {
                 parityRows,
                 shards, dataShardCount,
                 outputs, parityShardCount,
+                offset, byteCount);
+    }
+
+    /**
+     * Encodes parity for a set of data shards.
+     *
+     * @param shards An array containing data shards followed by parity shards.
+     *               Each shard is a ByteBuffer, and they must all be the same
+     *               size.
+     * @param offset The index of the first byte in each shard to encode.
+     * @param byteCount The number of bytes to encode in each shard.
+     *
+     */
+    public void encodeParity(ByteBuffer[] shards, int offset, int byteCount) {
+        // Check arguments.
+        checkBuffersAndSizes(shards, offset, byteCount);
+
+        // Build the array of output buffers.
+        ByteBuffer[] outputs = new ByteBuffer[parityShardCount];
+        System.arraycopy(shards, dataShardCount, outputs, 0, parityShardCount);
+
+        // Do the coding.
+        codingLoop.codeSomeShards(
+                parityRows, 
+                shards, dataShardCount, 
+                outputs, parityShardCount, 
+                offset, byteCount);
+    }
+
+    /**
+     * Encodes a single diff parity for a single diff shard. 
+     * The diff parity can be applied with xor to a previous code.
+     * 
+     * @param diff A byte array containing the xor diff between the shard used 
+     *             to create the previous code and the current data.
+     * @param inputOffset The index of the input shard.
+     * @param output A byte array used for storing the delta code.
+     * @param parityOffset The index of the parity shard to encode.
+     * @param offset The index of the first byte to encode.
+     * @param byteCount The number of bytes to encode.
+     */
+    public void encodeDiffParity(
+            byte[] diff, int inputOffset,
+            byte[] output, int parityOffset,
+            int offset, int byteCount) {
+        // Check arguments.
+        checkBuffersAndSizes(diff, output, inputOffset, parityOffset, offset, byteCount);
+
+        byte[][] shards = { diff };
+
+        // Build the array of the output buffer.
+        byte[][] outputs = { output };
+
+        // Build the required coding matrix
+        // For a single shard, this is actually just a single value
+        byte[][] parityRows = { { this.parityRows[parityOffset][inputOffset] } };
+
+        // Do the coding.
+        codingLoop.codeSomeShards(parityRows, 
+                shards, 1, 
+                outputs, 1, 
+                offset, byteCount);
+    }
+
+    /**
+     * Encodes a single diff parity for a single diff shard. 
+     * The diff parity can be applied with xor to a previous code.
+     * 
+     * @param diff ByteBuffer containing the xor diff between the shard used to
+     *             create the previous code and the current data.
+     * @param inputOffset The index of the input shard.
+     * @param output ByteBuffer used for storing the delta code.
+     * @param parityOffset The index of the parity shard to encode.
+     * @param offset The index of the first byte to encode.
+     * @param byteCount The number of bytes to encode.
+     */
+    public void encodeDiffParity(
+            ByteBuffer diff, int inputOffset,
+            ByteBuffer output, int parityOffset,
+            int offset, int byteCount) {
+        // Check arguments.
+        checkBuffersAndSizes(diff, output, inputOffset, parityOffset, offset, byteCount);
+
+        ByteBuffer[] shards = { diff };
+
+        // Build the array of the output buffer.
+        ByteBuffer[] outputs = { output };
+
+        // Build the required coding matrix
+        // For a single shard, this is actually just a single value
+        byte[][] parityRows = { { this.parityRows[parityOffset][inputOffset] } };
+
+        // Do the coding.
+        codingLoop.codeSomeShards(parityRows, 
+                shards, 1, 
+                outputs, 1, 
                 offset, byteCount);
     }
 
@@ -269,6 +367,7 @@ public class ReedSolomon {
                 offset, byteCount);
     }
 
+
     /**
      * Checks the consistency of arguments passed to public methods.
      */
@@ -287,6 +386,28 @@ public class ReedSolomon {
             }
         }
 
+        checkSizes(shardLength, offset, byteCount);
+    }
+
+    private void checkBuffersAndSizes(ByteBuffer[] shards, int offset, int byteCount) {
+        // The number of buffers should be equal to the number of
+        // data shards plus the number of parity shards.
+        if (shards.length != totalShardCount) {
+            throw new IllegalArgumentException("wrong number of shards: " + shards.length);
+        }
+
+        // All of the shard buffers should be the same length.
+        int shardLength = shards[0].capacity();
+        for (int i = 1; i < shards.length; i++) {
+            if (shards[i].capacity() != shardLength) {
+                throw new IllegalArgumentException("Shards are different sizes");
+            }
+        }
+
+        checkSizes(shardLength, offset, byteCount);
+    }
+
+    private void checkSizes(int shardLength, int offset, int byteCount) {
         // The offset and byteCount must be non-negative and fit in the buffers.
         if (offset < 0) {
             throw new IllegalArgumentException("offset is negative: " + offset);
@@ -297,6 +418,44 @@ public class ReedSolomon {
         if (shardLength < offset + byteCount) {
             throw new IllegalArgumentException("buffers to small: " + byteCount + offset);
         }
+    }
+
+    private void checkBuffersAndSizes(byte[] shard, byte[] output, int shardOffset, int parityOffset, int offset,
+            int byteCount) {
+        if (shardOffset >= dataShardCount) {
+            throw new IllegalArgumentException("Data shard offset is unknown.");
+        }
+
+        if (parityOffset >= parityShardCount) {
+            throw new IllegalArgumentException("Parity shard offset is unknown.");
+        }
+
+        // All of the shard buffers should be the same length.
+        int shardLength = shard.length;
+        if (output.length != shardLength) {
+            throw new IllegalArgumentException("Shards are different sizes");
+        }
+
+        checkSizes(shardLength, offset, byteCount);
+    }
+
+    private void checkBuffersAndSizes(ByteBuffer shard, ByteBuffer output, int shardOffset, int parityOffset,
+            int offset, int byteCount) {
+        if (shardOffset >= dataShardCount) {
+            throw new IllegalArgumentException("Data shard offset is unknown.");
+        }
+
+        if (parityOffset >= parityShardCount) {
+            throw new IllegalArgumentException("Parity shard offset is unknown.");
+        }
+
+        // All of the shard buffers should be the same length.
+        int shardLength = shard.capacity();
+        if (output.capacity() != shardLength) {
+            throw new IllegalArgumentException("Shards are different sizes");
+        }
+
+        checkSizes(shardLength, offset, byteCount);
     }
 
     /**
